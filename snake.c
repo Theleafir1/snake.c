@@ -308,7 +308,7 @@ int play(int delay, int skillChoice, int Height, int Width, int fruitsAmount)
         p += 5;
         
         if (bonus_time != 0){
-            for(char i = 0; i < bonus_time; i++){
+            for(char i = 1; i < bonus_time; i++){
                 for (char j = 0; j < bonus_progressbar_cell_size; j++){
                     memcpy(&framebuffer[p], "=", 1);
                     p += 1;
