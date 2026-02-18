@@ -13,6 +13,7 @@
 #define DEFAULT_WIDTH 17
 #define FRAMOUNT 1
 
+#define WALL "\e[38;5;245m # \e[90m"
 #define SPACE " . "
 #define FRUIT "\e[31m @ \e[90m"
 #define BONUS_L "\e[31m @@"
@@ -36,8 +37,24 @@ void unset_nonblocking() {
     fcntl(0, F_SETFL, flags & ~O_NONBLOCK);
 }
 int get_input() {
-    char dir;
-    return read(0, &dir, 1) == 1 ? dir : 0;
+    char buf[3];
+    int n = read(0, buf, 3);
+    if (n == 0) return 0;
+    
+    if (buf[0] == ' ') return '\n';
+
+    if (buf[0] != 27) {
+        return buf[0];
+    }
+    
+    if (n >= 3 && buf[1] == '[') {
+        if (buf[2] == 'A') return 'w';
+        if (buf[2] == 'B') return 's';
+        if (buf[2] == 'C') return 'd';
+        if (buf[2] == 'D') return 'a';
+    }
+    
+    return 0;
 }
 
 int end_screen(int cause, int score, int snake_len)
@@ -47,27 +64,81 @@ int end_screen(int cause, int score, int snake_len)
     {
     case 0:
         CLEARVIEW;
-        printf("Cannibalism detected! Self-collision\nScore: %d\nSnake length: %d\n", score, snake_len);
+        printf("\e[31m");  // красный
+        printf("  ╔════════════════════╗\n");
+        printf("  ║                    ║\n");
+        printf("  ║    🌀 Ouroboros    ║\n");
+        printf("  ║                    ║\n");
+        printf("  ║  You ate yourself  ║\n");
+        printf("  ║                    ║\n");
+        printf("  ║    Score: %04d     ║\n", score);
+        printf("  ║    Length: %03d     ║\n", snake_len);
+        printf("  ║                    ║\n");
+        printf("  ║    Press Enter     ║\n");
+        printf("  ║                    ║\n");
+        printf("  ╚════════════════════╝\n");
+        printf("\e[0m");
         break;
     case 1:
         CLEARVIEW;
-        printf("Solid object detected\nScore: %d\nSnake length: %d\n", score, snake_len);
+        printf("\e[38;5;95m");
+        printf("  ╔════════════════════╗\n");
+        printf("  ║                    ║\n");
+        printf("  ║  💥 WALL EATER 💥  ║\n");
+        printf("  ║                    ║\n");
+        printf("  ║   Score:    %-4d   ║\n", score);
+        printf("  ║   Length:   %-4d   ║\n", snake_len);
+        printf("  ║                    ║\n");
+        printf("  ║   Press Enter      ║\n");
+        printf("  ║                    ║\n");
+        printf("  ╚════════════════════╝\n");
+        printf("\e[0m");
         break;
     case 2:
         CLEARVIEW;
-        printf("Nokia Legend: Memory Full.\nScore: %d\nSnake length: %d\n", score, snake_len);
+        printf("\e[33m");
+        printf("  ╔════════════════════╗\n");
+        printf("  ║                    ║\n");
+        printf("  ║    👑 SNAKE KING   ║\n");
+        printf("  ║                    ║\n");
+        printf("  ║    No more space   ║\n");
+        printf("  ║    left to grow    ║\n");
+        printf("  ║                    ║\n");
+        printf("  ║    Final Score:    ║\n");
+        printf("  ║    %05d points     ║\n", score);
+        printf("  ║                    ║\n");
+        printf("  ║    Length: %d      ║\n", snake_len);
+        printf("  ║                    ║\n");
+        printf("  ║    Perfect game!   ║\n");
+        printf("  ║                    ║\n");
+        printf("  ║    Press Enter     ║\n");
+        printf("  ║                    ║\n");
+        printf("  ╚════════════════════╝\n");
+        printf("\e[0m");
         break;
     default:
-        printf("wtf man\n");
+        CLEARVIEW
+        printf("\e[35m");
+        printf("  ╔════════════════════╗\n");
+        printf("  ║                    ║\n");
+        printf("  ║    🤔 WTF MAN      ║\n");
+        printf("  ║                    ║\n");
+        printf("  ║    How did you     ║\n");
+        printf("  ║    even get here?  ║\n");
+        printf("  ║                    ║\n");
+        printf("  ║    Score: %04d     ║\n", score);
+        printf("  ║    Length: %d      ║\n", snake_len);
+        printf("  ║                    ║\n");
+        printf("  ║    Press Enter     ║\n");
+        printf("  ║                    ║\n");
+        printf("  ╚════════════════════╝\n");
+        printf("\e[0m");
         break;
     }
-    printf("Press Enter to exit\n");
     unset_nonblocking();
-    usleep(2000*1000);
     tcflush(0, TCIFLUSH);
-    while (getchar() != '\n');
+    while (get_input() != '\n');
     return 0;
-
 }
 
 int play(int delay, int skillChoice, int Height, int Width, int fruitsAmount) 
@@ -77,6 +148,14 @@ int play(int delay, int skillChoice, int Height, int Width, int fruitsAmount)
     int dir = 'd';  //  default direction
 
     char bonus_progressbar_cell_size = (Width * 3 - 6) / 15;
+
+    int *wallX = malloc(Height * Width);
+    int *wallY = malloc(Height * Width);
+    if (wallX == NULL || wallY == NULL) {
+        free(wallX);
+        free(wallY);
+        return 1;
+    }
 
     char *framebuffer = malloc((5 + ((Width * 13 + 1 ) * Height) + (1 + 3 * Width - 2 + 1) + (2 + 5 + 15 * bonus_progressbar_cell_size + 4) + 1));
     if (framebuffer == NULL) return 1;
@@ -108,15 +187,15 @@ int play(int delay, int skillChoice, int Height, int Width, int fruitsAmount)
     //  snake
     int snake_len = 3;
 
-    int *snakeX = malloc(Height * Width * sizeof(int));
-    int *snakeY = malloc(Height * Width * sizeof(int));
+    int *snakeX = malloc(Width * Height * sizeof(int));
+    int *snakeY = malloc(Width * Height * sizeof(int));
     if (snakeX == NULL || snakeY == NULL) {
         free(framebuffer);
-        framebuffer = NULL;
+            framebuffer = NULL;
         free(fruitX);
-        fruitX = NULL;
+            fruitX = NULL;
         free(fruitY);
-        fruitY = NULL;
+            fruitY = NULL;
         if (snakeX != NULL) {
             free(snakeX);
             snakeX = NULL;
@@ -129,9 +208,9 @@ int play(int delay, int skillChoice, int Height, int Width, int fruitsAmount)
         return 1;
     }
     
-    snakeX[2] = 0, snakeY[2] = 0;
-    snakeX[1] = 1, snakeY[1] = 0;
-    snakeX[0] = 2, snakeY[0] = 0;
+    snakeX[2] = Width / 2 - 4, snakeY[2] = Height / 2;
+    snakeX[1] = Width / 2 - 3, snakeY[1] = Height / 2;
+    snakeX[0] = Width / 2 - 2, snakeY[0] = Height / 2;
     
     //  game cycle starts here 
     set_nonblocking();
@@ -139,7 +218,7 @@ int play(int delay, int skillChoice, int Height, int Width, int fruitsAmount)
         CLEARVIEW;
 
         int input = get_input();
-    
+        
         if (input != 0){
             if ((input == 'w' || input == 'W') && (dir != 's')) dir = 'w';
             else if ((input == 's' || input == 'S') && (dir != 'w')) dir = 's';
@@ -178,7 +257,30 @@ int play(int delay, int skillChoice, int Height, int Width, int fruitsAmount)
                     fruitX = NULL;
                 free(fruitY);
                     fruitY = NULL;
+                free(wallX);
+                    wallX = NULL;
+                free(wallY);
+                    wallY = NULL;
                 return end_screen(0, score, snake_len);
+            }
+            for (int p = 0; p < Height * Width; p++){
+                if (snakeX[0] == wallX[p] && snakeY[0] == wallY[p]){
+                free(framebuffer);
+                    framebuffer = NULL;
+                free(snakeX);
+                    snakeX = NULL;
+                free(snakeY);
+                    snakeY = NULL;
+                free(fruitX);
+                    fruitX = NULL;
+                free(fruitY);
+                    fruitY = NULL;
+                free(wallX);
+                    wallX = NULL;
+                free(wallY);
+                    wallY = NULL;
+                return end_screen(1, score, snake_len);
+                }
             }
         }
         
@@ -193,6 +295,10 @@ int play(int delay, int skillChoice, int Height, int Width, int fruitsAmount)
                     fruitX = NULL;
             free(fruitY);
                 fruitY = NULL;
+            free(wallX);
+                wallX = NULL;
+            free(wallY);
+                wallY = NULL;
             return end_screen(2, score, snake_len);
         }
 
@@ -255,12 +361,19 @@ int play(int delay, int skillChoice, int Height, int Width, int fruitsAmount)
         p += 5;
         for (int y = 0; y < Height; y++){
             for (int x = 0; x < Width; x++){
+                if (wallX[0] == x && wallY[0] == y) {              //  head
+                    memcpy(&framebuffer[p], WALL, 13);
+                    p += 13;
+                    goto next;
+                }
                 if (snakeX[0] == x && snakeY[0] == y) {            //  head
                     memcpy(&framebuffer[p], HEAD, 13);
                     p += 13;
                     goto next;
                 }
-                if ((bonusX == x || bonusX + 1 == x) && (bonusY == y || bonusY + 1 == y ) && bonus_time > 0) {
+                if ((bonusX == x || bonusX + 1 == x) &&            // big bonus fruit 
+                (bonusY == y || bonusY + 1 == y ) && 
+                bonus_time > 0) {
                     if (bonusX == x) {
                         memcpy(&framebuffer[p], BONUS_L, 8);
                         p += 8;
@@ -299,13 +412,13 @@ int play(int delay, int skillChoice, int Height, int Width, int fruitsAmount)
                 p += 3;
         }
         p -= 2;  //  remove last 2 symbols ("__") and replace them with ...
-        memcpy(&framebuffer[p], "\n  ", 3); //  new line and two spaces before score
-        p += 3;
+        memcpy(&framebuffer[p], "\n ", 2); //  new line and two spaces before score
+        p += 2;
 
         char scoreformated[6];
-        sprintf(scoreformated, "%04d ", score); //  formatting
-        memcpy(&framebuffer[p], scoreformated, 5);
-        p += 5;
+        sprintf(scoreformated, "%05d ", score); //  formatting
+        memcpy(&framebuffer[p], scoreformated, 6);
+        p += 6;
         
         if (bonus_time != 0){
             for(char i = 1; i < bonus_time; i++){
@@ -343,6 +456,10 @@ int play(int delay, int skillChoice, int Height, int Width, int fruitsAmount)
         fruitX = NULL;
     free(fruitY);
         fruitY = NULL;
+    free(wallX);
+        wallX = NULL;
+    free(wallY);
+        wallY = NULL;
     return 0;
 }
 
@@ -354,13 +471,15 @@ int main() {
     int Height = DEFAULT_HEIGHT;
     int Width = DEFAULT_WIDTH;
     int fruitsAmount = 1;
+    char shit;
     
     while (running) {
         CLEARVIEW;
         printf("Snake, my first C project\n\n");
         printf("1. Play\n");
         printf("2. Settings\n");
-        printf("3. Exit\n\n");
+        printf("3. Help\n");
+        printf("4. Exit\n\n");
         int c;
         if (scanf("%d", &menuChoice) != 1) {
             while ((c = getchar()) != '\n' && c != EOF);  
@@ -477,7 +596,14 @@ int main() {
                     
                 }
             break;
-            case 3:
+            case 3: 
+                CLEARVIEW
+                printf("Controls: WASD\n");
+                printf("\nPress anything to exit\n");
+                getchar();
+                getchar();
+                break;
+            case 4:
                 CLEARVIEW
                 running = 0;
                 break;
